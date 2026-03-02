@@ -1,5 +1,14 @@
 document.addEventListener("DOMContentLoaded", async () => {
   if (!APP.requireAdmin()) return;
+
+  const logoutBtn = document.getElementById("logoutBtn");
+  const sendTestEmailBtn = document.getElementById("sendTestEmailBtn");
+  const triggerExpiryAlertsBtn = document.getElementById("triggerExpiryAlertsBtn");
+
+  logoutBtn?.addEventListener("click", logout);
+  sendTestEmailBtn?.addEventListener("click", sendTestEmail);
+  triggerExpiryAlertsBtn?.addEventListener("click", triggerExpiryAlerts);
+
   await loadAnalytics();
 });
 
