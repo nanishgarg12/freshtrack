@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Add Item - FreshTrack</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="navbar">
+  <h2>Add Item</h2>
+  <div class="top-links">
+    <a href="dashboard.html">Dashboard</a>
+    <a href="shopping.html">Shopping List</a>
+    <a href="admin.html">Analytics</a>
+    <button type="button" onclick="logout()">Logout</button>
+  </div>
+</header>
+
+<div class="form-box">
+  <h3>Add New Item</h3>
+
+  <div class="scanner-box">
+    <h4>Quick Scan</h4>
+    <video id="scannerVideo" autoplay playsinline muted></video>
+    <canvas id="scannerCanvas" class="hidden-canvas"></canvas>
+
+    <div class="scanner-controls">
+      <button type="button" onclick="startCamera()">Start Camera</button>
+      <button type="button" onclick="scanBarcode()">Scan Barcode</button>
+      <button type="button" onclick="scanExpiryText()">Scan Expiry Text</button>
+      <button type="button" onclick="stopCamera()">Stop Camera</button>
+    </div>
+
+    <div class="manual-barcode">
+      <input id="barcodeInput" placeholder="Or enter barcode manually">
+      <button type="button" onclick="fillFromManualBarcode()">Fetch Product</button>
+    </div>
+
+    <p id="scannerStatus" class="scanner-status">Scanner idle.</p>
+  </div>
+
+  <form id="addItemForm">
+    <select id="category" required>
+      <option value="vegetables">Vegetables</option>
+      <option value="grains">Grains</option>
+      <option value="pulses">Pulses</option>
+      <option value="medicines">Medicines</option>
+      <option value="packed">Packed Food</option>
+    </select>
+
+    <input id="name" placeholder="Item Name" required>
+    <input id="qty" type="number" min="0" step="1" placeholder="Quantity" required>
+    <input id="unit" placeholder="Unit (kg / pack / pcs)">
+    <input id="expiryDate" type="date" required>
+    <input id="price" type="number" min="0" step="0.01" placeholder="Price">
+    <input type="file" id="image" accept="image/*">
+
+    <button type="submit">Add Item</button>
+  </form>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@ericblade/quagga2/dist/quagga.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script src="js/common.js"></script>
+<script src="js/addItem.js"></script>
+</body>
+</html>

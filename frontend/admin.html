@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>FreshTrack Analytics</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="navbar">
+  <h2>Admin Analytics</h2>
+  <div class="top-links">
+    <a href="dashboard.html">Dashboard</a>
+    <a href="add-item.html">Add Item</a>
+    <a href="shopping.html">Shopping List</a>
+    <button type="button" onclick="logout()">Logout</button>
+  </div>
+</header>
+
+<div class="analytics-cards">
+  <div class="card">Total Items<br><span id="totalItems">0</span></div>
+  <div class="card">Expiring Soon<br><span id="expiringSoon">0</span></div>
+  <div class="card">Estimated Value<br><span id="totalValue">0</span></div>
+</div>
+
+<section class="waste-dashboard">
+  <h3 class="section-title">Pantry Waste Reduction</h3>
+  <div class="waste-cards">
+    <div class="card">Waste Avoided Qty<br><span id="savedQty">0</span></div>
+    <div class="card">Wasted Qty<br><span id="wastedQty">0</span></div>
+    <div class="card">At-Risk Qty (3 days)<br><span id="atRiskQty">0</span></div>
+    <div class="card">Saved Value<br><span id="savedValue">0.00</span></div>
+    <div class="card">Wasted Value<br><span id="wastedValue">0.00</span></div>
+    <div class="card">Used After Expiry<br><span id="usedAfterExpiryQty">0</span></div>
+  </div>
+  <div class="waste-progress">
+    <div class="waste-progress-label">
+      <span>Waste Avoided</span>
+      <strong id="wasteAvoidedPercent">0%</strong>
+    </div>
+    <div class="waste-progress-bar">
+      <div id="wasteProgressFill" class="waste-progress-fill"></div>
+    </div>
+  </div>
+</section>
+
+<div class="categories" style="margin-top: 0;">
+  <button onclick="sendTestEmail()">Send Test Email</button>
+  <button onclick="triggerExpiryAlerts()">Trigger Expiry Alerts Now</button>
+</div>
+
+<h3 class="section-title">Category-wise Items</h3>
+
+<table>
+  <thead>
+    <tr>
+      <th>Category</th>
+      <th>Total Items</th>
+    </tr>
+  </thead>
+  <tbody id="categoryTable"></tbody>
+</table>
+
+<script src="js/common.js"></script>
+<script src="js/admin.js"></script>
+</body>
+</html>

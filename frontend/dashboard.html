@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>FreshTrack Dashboard</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="navbar">
+  <h2>FreshTrack Dashboard</h2>
+  <div class="top-links">
+    <span>Hi, <strong id="userName">User</strong></span>
+    <a href="add-item.html">Add Item</a>
+    <a href="shopping.html">Shopping List</a>
+    <a id="adminLink" href="admin.html">Analytics</a>
+    <button type="button" onclick="logout()">Logout</button>
+  </div>
+</header>
+
+<div class="categories">
+  <button onclick="loadItems('vegetables')">Vegetables</button>
+  <button onclick="loadItems('medicines')">Medicines</button>
+  <button onclick="loadItems('grains')">Grains</button>
+  <button onclick="loadItems('pulses')">Pulses</button>
+  <button onclick="loadItems('packed')">Packed Food</button>
+</div>
+
+<div class="filter-bar">
+  <input id="searchInput" type="text" placeholder="Search by item name">
+  <select id="expiryFilter">
+    <option value="all">All Items</option>
+    <option value="soon">Expiring Soon (3 days)</option>
+    <option value="expired">Expired</option>
+  </select>
+  <select id="sortBy">
+    <option value="expiryDate">Sort by Expiry</option>
+    <option value="name">Sort by Name</option>
+    <option value="qty">Sort by Quantity</option>
+    <option value="price">Sort by Price</option>
+    <option value="createdAt">Sort by Added Date</option>
+  </select>
+  <select id="sortOrder">
+    <option value="asc">Ascending</option>
+    <option value="desc">Descending</option>
+  </select>
+  <button onclick="applyFilters()">Apply</button>
+  <button onclick="clearFilters()">Clear</button>
+</div>
+
+<div class="alert-box">
+  <h3>Expiry Alerts (Next 3 Days)</h3>
+  <ul id="expiryAlerts"></ul>
+</div>
+
+<h3 class="section-title">Items in <span id="activeCategory">vegetables</span></h3>
+<table>
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Qty</th>
+      <th>Price</th>
+      <th>Expiry</th>
+      <th>Action</th>
+    </tr>
+  </thead>
+  <tbody id="tableBody"></tbody>
+</table>
+
+<script src="js/common.js"></script>
+<script src="js/dashboard.js"></script>
+</body>
+</html>

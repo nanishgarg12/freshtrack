@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>FreshTrack Shopping List</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="navbar">
+  <h2>Shopping List</h2>
+  <div class="top-links">
+    <a href="dashboard.html">Dashboard</a>
+    <a href="add-item.html">Add Item</a>
+    <a href="admin.html">Analytics</a>
+    <button type="button" onclick="logout()">Logout</button>
+  </div>
+</header>
+
+<table>
+  <thead>
+    <tr>
+      <th>Item</th>
+      <th>Category</th>
+      <th>Qty Needed</th>
+      <th>Action</th>
+    </tr>
+  </thead>
+  <tbody id="shoppingBody"></tbody>
+</table>
+
+<script src="js/common.js"></script>
+<script src="js/shopping.js"></script>
+</body>
+</html>
