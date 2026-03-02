@@ -43,29 +43,37 @@ async function sendWithResend(to, subject, text) {
   return true;
 }
 
-module.exports = async (to, subject, text) => {
-  try {
-    await transporter.sendMail({
-      from: `FreshTrack <${process.env.EMAIL_USER}>`,
-      to,
-      subject,
-      text
-    });
+async function sendWithSmtp(to, subject, text) {
+  await transporter.sendMail({
+    from: `FreshTrack <${process.env.EMAIL_USER}>`,
+    to,
+    subject,
+    text
+  });
+}
 
-    console.log(`Email sent to ${to}`);
+module.exports = async (to, subject, text) => {
+  const hasResend = Boolean(process.env.RESEND_API_KEY && (process.env.RESEND_FROM || process.env.EMAIL_USER));
+
+  // On Render, SMTP often times out. Prefer HTTP API when available.
+  if (hasResend) {
+    try {
+      await sendWithResend(to, subject, text);
+      console.log(`Email sent to ${to} via Resend`);
+      return;
+    } catch (error) {
+      console.error(`Resend primary send failed for ${to}:`, error.message);
+    }
+  }
+
+  try {
+    await sendWithSmtp(to, subject, text);
+    console.log(`Email sent to ${to} via SMTP`);
   } catch (error) {
     console.error(`SMTP email failed for ${to}:`, error.message);
-
-    try {
-      const usedFallback = await sendWithResend(to, subject, text);
-      if (usedFallback) {
-        console.log(`Email sent to ${to} via Resend fallback`);
-        return;
-      }
-    } catch (fallbackError) {
-      console.error(`Resend fallback failed for ${to}:`, fallbackError.message);
+    if (!hasResend) {
+      console.error("Set RESEND_API_KEY and RESEND_FROM in Render env to avoid SMTP timeout issues.");
     }
-
-    throw error;
+    throw new Error(`Email delivery failed for ${to}`);
   }
 };
