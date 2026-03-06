@@ -112,17 +112,27 @@ async function sendExpiryAlerts() {
 function startExpiryCron() {
   if (jobStarted) return;
 
-  cron.schedule("0 9 * * *", async () => {
-    console.log("Running scheduled expiry alert job...");
-    try {
-      await sendExpiryAlerts();
-    } catch (error) {
-      console.error("Expiry alert job failed:", error.message);
-    }
-  });
+  const schedule = process.env.EXPIRY_CRON_SCHEDULE || "0 9 * * *";
+  const timezone = process.env.EXPIRY_CRON_TZ;
+  const options = timezone ? { timezone } : undefined;
+
+  cron.schedule(
+    schedule,
+    async () => {
+      console.log("Running scheduled expiry alert job...");
+      try {
+        await sendExpiryAlerts();
+      } catch (error) {
+        console.error("Expiry alert job failed:", error.message);
+      }
+    },
+    options
+  );
 
   jobStarted = true;
-  console.log("Expiry alert cron job started (schedule: 0 9 * * *)");
+  console.log(
+    `Expiry alert cron job started (schedule: ${schedule}${timezone ? `, tz: ${timezone}` : ""})`
+  );
 }
 
 module.exports = {

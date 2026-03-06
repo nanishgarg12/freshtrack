@@ -11,6 +11,10 @@ services:
         value: production
       - key: ENABLE_IN_PROCESS_CRON
         value: "false"
+      - key: EXPIRY_CRON_SCHEDULE
+        value: "0 9 * * *"
+      - key: EXPIRY_CRON_TZ
+        value: "Asia/Kolkata"
 
   - type: cron
     name: freshtrack-expiry-alerts
@@ -22,3 +26,7 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: EXPIRY_CRON_SCHEDULE
+        value: "0 9 * * *"
+      - key: EXPIRY_CRON_TZ
+        value: "Asia/Kolkata"
