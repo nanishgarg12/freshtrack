@@ -9,3 +9,16 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: ENABLE_IN_PROCESS_CRON
+        value: "false"
+
+  - type: cron
+    name: freshtrack-expiry-alerts
+    env: node
+    rootDir: backend
+    schedule: "0 9 * * *"
+    buildCommand: npm install
+    startCommand: node scripts/runExpiryAlerts.js
+    envVars:
+      - key: NODE_ENV
+        value: production

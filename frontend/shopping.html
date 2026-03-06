@@ -15,6 +15,22 @@
   </div>
 </header>
 
+<div class="form-box">
+  <h3>Add Shopping Item</h3>
+  <form id="shoppingForm">
+    <input id="shoppingName" placeholder="Item Name" required>
+    <select id="shoppingCategory" required>
+      <option value="vegetables">Vegetables</option>
+      <option value="grains">Grains</option>
+      <option value="pulses">Pulses</option>
+      <option value="medicines">Medicines</option>
+      <option value="packed">Packed Food</option>
+    </select>
+    <input id="shoppingQtyNeeded" type="number" min="1" step="1" value="1" required>
+    <button type="submit">Add To List</button>
+  </form>
+</div>
+
 <table>
   <thead>
     <tr>

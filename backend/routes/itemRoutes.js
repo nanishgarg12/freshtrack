@@ -19,8 +19,54 @@ const modelMap = {
   packed: PackedFood
 };
 
+function normalizeCategory(category) {
+  const value = (category || "").trim().toLowerCase();
+  const aliases = {
+    vegetable: "vegetables",
+    grain: "grains",
+    pulse: "pulses",
+    medicine: "medicines",
+    packedfood: "packed",
+    "packed food": "packed"
+  };
+
+  return aliases[value] || value;
+}
+
 function getModel(category) {
-  return modelMap[category] || null;
+  return modelMap[normalizeCategory(category)] || null;
+}
+
+function escapeRegex(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function exactNameRegex(name) {
+  return new RegExp(`^${escapeRegex((name || "").trim())}$`, "i");
+}
+
+async function inventoryHasItem(userId, category, name) {
+  const Model = getModel(category);
+  if (!Model) return false;
+
+  const existingInventoryItem = await Model.findOne({
+    userId,
+    name: exactNameRegex(name),
+    qty: { $gt: 0 }
+  }).select("_id");
+
+  return Boolean(existingInventoryItem);
+}
+
+async function removeShoppingItemsIfInInventory(userId, category, name) {
+  const isInInventory = await inventoryHasItem(userId, category, name);
+  if (!isInInventory) return;
+
+  await ShoppingItem.deleteMany({
+    userId,
+    category,
+    name: exactNameRegex(name)
+  });
 }
 
 function buildItemPayload(req) {
@@ -74,9 +120,68 @@ router.get("/alerts/expiring", auth, async (req, res) => {
 router.get("/shopping/list", auth, async (req, res) => {
   try {
     const list = await ShoppingItem.find({ userId: req.userId }).sort({ createdAt: -1 });
-    res.json(list);
+    const visibleList = [];
+
+    for (const item of list) {
+      const isInInventory = await inventoryHasItem(req.userId, item.category, item.name);
+      if (isInInventory) {
+        await ShoppingItem.deleteOne({ _id: item._id, userId: req.userId });
+        continue;
+      }
+
+      visibleList.push(item);
+    }
+
+    res.json(visibleList);
   } catch (err) {
     res.status(500).json({ message: "Failed to load shopping list" });
+  }
+});
+
+/* ADD SHOPPING ITEM */
+router.post("/shopping", auth, async (req, res) => {
+  try {
+    const name = (req.body.name || "").trim();
+    const category = normalizeCategory(req.body.category);
+    const qtyNeeded = req.body.qtyNeeded === undefined ? 1 : Number(req.body.qtyNeeded);
+
+    if (!name || !getModel(category)) {
+      return res
+        .status(400)
+        .json({ message: "Invalid category. Use vegetables, grains, pulses, medicines, or packed" });
+    }
+
+    if (Number.isNaN(qtyNeeded) || qtyNeeded < 1) {
+      return res.status(400).json({ message: "qtyNeeded must be at least 1" });
+    }
+
+    const inInventory = await inventoryHasItem(req.userId, category, name);
+    if (inInventory) {
+      return res.status(409).json({ message: "Item already exists in inventory" });
+    }
+
+    const existing = await ShoppingItem.findOne({
+      userId: req.userId,
+      category,
+      name: exactNameRegex(name)
+    });
+
+    if (existing) {
+      existing.qtyNeeded += qtyNeeded;
+      await existing.save();
+      return res.json({ message: "Shopping item updated", item: existing });
+    }
+
+    const item = await ShoppingItem.create({
+      userId: req.userId,
+      name,
+      category,
+      qtyNeeded
+    });
+
+    res.json({ message: "Added to shopping list", item });
+  } catch (err) {
+    res.status(500).json({ message: "Failed to add shopping item" });
   }
 });
 
@@ -93,8 +198,13 @@ router.delete("/shopping/:id", auth, async (req, res) => {
 /* GET ITEMS BY CATEGORY */
 router.get("/:category", auth, async (req, res) => {
   try {
-    const Model = getModel(req.params.category);
-    if (!Model) return res.status(400).json({ message: "Invalid category" });
+    const category = normalizeCategory(req.params.category);
+    const Model = getModel(category);
+    if (!Model) {
+      return res
+        .status(400)
+        .json({ message: "Invalid category. Use vegetables, grains, pulses, medicines, or packed" });
+    }
 
     const { q, expiryFilter = "all", sortBy = "expiryDate", sortOrder = "asc" } = req.query;
 
@@ -124,8 +234,13 @@ router.get("/:category", auth, async (req, res) => {
 /* ADD ITEM (WITH OPTIONAL IMAGE) */
 router.post("/:category", auth, upload.single("image"), async (req, res) => {
   try {
-    const Model = getModel(req.params.category);
-    if (!Model) return res.status(400).json({ message: "Invalid category" });
+    const category = normalizeCategory(req.params.category);
+    const Model = getModel(category);
+    if (!Model) {
+      return res
+        .status(400)
+        .json({ message: "Invalid category. Use vegetables, grains, pulses, medicines, or packed" });
+    }
 
     const payload = buildItemPayload(req);
 
@@ -142,6 +257,8 @@ router.post("/:category", auth, upload.single("image"), async (req, res) => {
       ...payload
     });
 
+    await removeShoppingItemsIfInInventory(req.userId, category, payload.name);
+
     res.json({ message: "Item added successfully", item });
   } catch (err) {
     res.status(500).json({ message: "Failed to add item" });
@@ -151,8 +268,13 @@ router.post("/:category", auth, upload.single("image"), async (req, res) => {
 /* USE ITEM QTY */
 router.put("/:category/:id", auth, async (req, res) => {
   try {
-    const Model = getModel(req.params.category);
-    if (!Model) return res.status(400).json({ message: "Invalid category" });
+    const category = normalizeCategory(req.params.category);
+    const Model = getModel(category);
+    if (!Model) {
+      return res
+        .status(400)
+        .json({ message: "Invalid category. Use vegetables, grains, pulses, medicines, or packed" });
+    }
 
     const usedQty = Number(req.body.usedQty);
     if (Number.isNaN(usedQty) || usedQty <= 0) {
@@ -178,17 +300,19 @@ router.put("/:category/:id", auth, async (req, res) => {
       const exists = await ShoppingItem.findOne({
         userId: req.userId,
         name: item.name,
-        category: req.params.category
+        category
       });
 
       if (!exists) {
         await ShoppingItem.create({
           userId: req.userId,
           name: item.name,
-          category: req.params.category,
+          category,
           qtyNeeded: 1
         });
       }
+    } else {
+      await removeShoppingItemsIfInInventory(req.userId, category, item.name);
     }
 
     await item.save();
@@ -201,8 +325,13 @@ router.put("/:category/:id", auth, async (req, res) => {
 /* EDIT ITEM */
 router.put("/:category/edit/:id", auth, async (req, res) => {
   try {
-    const Model = getModel(req.params.category);
-    if (!Model) return res.status(400).json({ message: "Invalid category" });
+    const category = normalizeCategory(req.params.category);
+    const Model = getModel(category);
+    if (!Model) {
+      return res
+        .status(400)
+        .json({ message: "Invalid category. Use vegetables, grains, pulses, medicines, or packed" });
+    }
 
     const qty = Number(req.body.qty);
     const price = req.body.price === undefined || req.body.price === "" ? undefined : Number(req.body.price);
@@ -227,17 +356,19 @@ router.put("/:category/edit/:id", auth, async (req, res) => {
       const exists = await ShoppingItem.findOne({
         userId: req.userId,
         name: item.name,
-        category: req.params.category
+        category
       });
 
       if (!exists) {
         await ShoppingItem.create({
           userId: req.userId,
           name: item.name,
-          category: req.params.category,
+          category,
           qtyNeeded: 1
         });
       }
+    } else {
+      await removeShoppingItemsIfInInventory(req.userId, category, item.name);
     }
 
     await item.save();
@@ -250,8 +381,13 @@ router.put("/:category/edit/:id", auth, async (req, res) => {
 /* DELETE ITEM */
 router.delete("/:category/:id", auth, async (req, res) => {
   try {
-    const Model = getModel(req.params.category);
-    if (!Model) return res.status(400).json({ message: "Invalid category" });
+    const category = normalizeCategory(req.params.category);
+    const Model = getModel(category);
+    if (!Model) {
+      return res
+        .status(400)
+        .json({ message: "Invalid category. Use vegetables, grains, pulses, medicines, or packed" });
+    }
 
     await Model.findOneAndDelete({ _id: req.params.id, userId: req.userId });
     res.json({ message: "Item deleted successfully" });

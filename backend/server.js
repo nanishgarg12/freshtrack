@@ -41,7 +41,15 @@ app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "../frontend/login.html"));
 });
 
-startExpiryCron();
+const enableInProcessCron =
+  process.env.ENABLE_IN_PROCESS_CRON === "true" ||
+  (process.env.NODE_ENV || "").toLowerCase() !== "production";
+
+if (enableInProcessCron) {
+  startExpiryCron();
+} else {
+  console.log("In-process cron disabled (use Render cron service).");
+}
 
 /* SERVER */
 const PORT = process.env.PORT || 5000;

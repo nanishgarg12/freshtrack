@@ -1,17 +1,27 @@
 const nodemailer = require("nodemailer");
 
-const transporter = nodemailer.createTransport({
-  host: process.env.EMAIL_SMTP_HOST || "smtp.gmail.com",
-  port: Number(process.env.EMAIL_SMTP_PORT || 465),
-  secure: String(process.env.EMAIL_SMTP_SECURE || "true") === "true",
-  connectionTimeout: Number(process.env.EMAIL_CONNECTION_TIMEOUT_MS || 30000),
-  greetingTimeout: Number(process.env.EMAIL_GREETING_TIMEOUT_MS || 30000),
-  socketTimeout: Number(process.env.EMAIL_SOCKET_TIMEOUT_MS || 30000),
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS
-  }
-});
+function hasSmtpConfig() {
+  return Boolean(process.env.EMAIL_USER && process.env.EMAIL_PASS);
+}
+
+function hasResendConfig() {
+  return Boolean(process.env.RESEND_API_KEY && (process.env.RESEND_FROM || process.env.EMAIL_USER));
+}
+
+function buildSmtpTransporter() {
+  return nodemailer.createTransport({
+    host: process.env.EMAIL_SMTP_HOST || "smtp.gmail.com",
+    port: Number(process.env.EMAIL_SMTP_PORT || 465),
+    secure: String(process.env.EMAIL_SMTP_SECURE || "true") === "true",
+    connectionTimeout: Number(process.env.EMAIL_CONNECTION_TIMEOUT_MS || 30000),
+    greetingTimeout: Number(process.env.EMAIL_GREETING_TIMEOUT_MS || 30000),
+    socketTimeout: Number(process.env.EMAIL_SOCKET_TIMEOUT_MS || 30000),
+    auth: {
+      user: process.env.EMAIL_USER,
+      pass: process.env.EMAIL_PASS
+    }
+  });
+}
 
 async function sendWithResend(to, subject, text) {
   const apiKey = process.env.RESEND_API_KEY;
@@ -44,6 +54,12 @@ async function sendWithResend(to, subject, text) {
 }
 
 async function sendWithSmtp(to, subject, text) {
+  if (!hasSmtpConfig()) {
+    throw new Error("SMTP is not configured (missing EMAIL_USER or EMAIL_PASS)");
+  }
+
+  const transporter = buildSmtpTransporter();
+
   await transporter.sendMail({
     from: `FreshTrack <${process.env.EMAIL_USER}>`,
     to,
@@ -53,10 +69,15 @@ async function sendWithSmtp(to, subject, text) {
 }
 
 module.exports = async (to, subject, text) => {
-  const hasResend = Boolean(process.env.RESEND_API_KEY && (process.env.RESEND_FROM || process.env.EMAIL_USER));
+  const resendEnabled = hasResendConfig();
+  const smtpEnabled = hasSmtpConfig();
+
+  if (!resendEnabled && !smtpEnabled) {
+    throw new Error("Email delivery is not configured");
+  }
 
   // On Render, SMTP often times out. Prefer HTTP API when available.
-  if (hasResend) {
+  if (resendEnabled) {
     try {
       await sendWithResend(to, subject, text);
       console.log(`Email sent to ${to} via Resend`);
@@ -71,7 +92,7 @@ module.exports = async (to, subject, text) => {
     console.log(`Email sent to ${to} via SMTP`);
   } catch (error) {
     console.error(`SMTP email failed for ${to}:`, error.message);
-    if (!hasResend) {
+    if (!resendEnabled) {
       console.error("Set RESEND_API_KEY and RESEND_FROM in Render env to avoid SMTP timeout issues.");
     }
     throw new Error(`Email delivery failed for ${to}`);

@@ -6,7 +6,8 @@
     "node": ">=18.17.0"
   },
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "cron:expiry": "node scripts/runExpiryAlerts.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
