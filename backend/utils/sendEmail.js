@@ -8,6 +8,25 @@ function hasResendConfig() {
   return Boolean(process.env.RESEND_API_KEY && (process.env.RESEND_FROM || process.env.EMAIL_USER));
 }
 
+function normalizeResendFrom(value) {
+  const raw = (value || "").trim().replace(/^['"]|['"]$/g, "");
+  if (!raw) return "";
+
+  // If caller already provided "Name <email@domain.com>", use it as-is.
+  const namedAddressPattern = /^[^<>]+<[^<>\s@]+@[^<>\s@]+\.[^<>\s@]+>$/;
+  if (namedAddressPattern.test(raw)) {
+    return raw;
+  }
+
+  // If only email is provided, wrap with default display name.
+  const emailOnlyPattern = /^[^<>\s@]+@[^<>\s@]+\.[^<>\s@]+$/;
+  if (emailOnlyPattern.test(raw)) {
+    return `FreshTrack <${raw}>`;
+  }
+
+  return "";
+}
+
 function buildSmtpTransporter() {
   return nodemailer.createTransport({
     host: process.env.EMAIL_SMTP_HOST || "smtp.gmail.com",
@@ -25,9 +44,10 @@ function buildSmtpTransporter() {
 
 async function sendWithResend(to, subject, text) {
   const apiKey = process.env.RESEND_API_KEY;
-  const fromAddress = process.env.RESEND_FROM || process.env.EMAIL_USER;
+  const configuredFrom = process.env.RESEND_FROM || process.env.EMAIL_USER;
+  const from = normalizeResendFrom(configuredFrom);
 
-  if (!apiKey || !fromAddress) {
+  if (!apiKey || !from) {
     return false;
   }
 
@@ -38,7 +58,7 @@ async function sendWithResend(to, subject, text) {
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      from: `FreshTrack <${fromAddress}>`,
+      from,
       to: [to],
       subject,
       text
