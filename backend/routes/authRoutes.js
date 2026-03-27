@@ -3,6 +3,7 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const User = require("../models/user");
 const { sendExpiryAlertsForUser } = require("../cron/expiryJob");
+const sendEmail = require("../utils/sendEmail");
 
 const router = express.Router();
 
@@ -19,6 +20,11 @@ function getAdminEmailSet() {
 function resolveRole(email) {
   const admins = getAdminEmailSet();
   return admins.has(email.toLowerCase()) ? "admin" : "user";
+}
+
+function buildLoginMessage(userName) {
+  const loginTime = new Date().toISOString();
+  return `Hi ${userName || "User"},\n\nYou have successfully logged in to FreshTrack on ${loginTime} (UTC).\n\nIf this was not you, please reset your password immediately.\n\n- FreshTrack`;
 }
 
 /* REGISTER */
@@ -72,6 +78,11 @@ router.post("/login", async (req, res) => {
 
     const token = jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, {
       expiresIn: "7d"
+    });
+
+    // Fire and forget so login stays fast while still sending automatic alerts on login.
+    sendEmail(user.email, "FreshTrack Login Alert", buildLoginMessage(user.name)).catch((error) => {
+      console.error("Login email failed:", error.message);
     });
 
     // Fire and forget so login stays fast while still sending automatic alerts on login.

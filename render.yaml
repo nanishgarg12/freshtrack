@@ -1,7 +1,7 @@
 services:
   - type: web
     name: freshtrack
-    env: node
+    runtime: node
     rootDir: backend
     buildCommand: npm install
     startCommand: node server.js
@@ -18,7 +18,7 @@ services:
 
   - type: cron
     name: freshtrack-expiry-alerts
-    env: node
+    runtime: node
     rootDir: backend
     schedule: "0 9 * * *"
     buildCommand: npm install

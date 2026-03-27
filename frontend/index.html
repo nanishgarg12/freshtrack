@@ -3,47 +3,38 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>FreshTrack Shopping List</title>
+  <title>FreshTrack - Home</title>
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
 <header class="navbar">
-  <h2>Shopping List</h2>
+  <h2>FreshTrack</h2>
   <div class="top-links">
-    <a href="dashboard.html">Dashboard</a>
-    <a href="add-item.html">Add Item</a>
-    <a href="admin.html">Analytics</a>
-    <button type="button" onclick="logout()">Logout</button>
+    <a href="login.html">Login</a>
+    <a href="register.html">Create account</a>
   </div>
 </header>
 
-<div class="form-box">
-  <h3>Add Shopping Item</h3>
-  <form id="shoppingForm">
-    <input id="shoppingName" placeholder="Item Name" required>
-    <select id="shoppingCategory" required>
-      <option value="vegetables">Vegetables</option>
-      <option value="grains">Grains</option>
-      <option value="pulses">Pulses</option>
-      <option value="medicines">Medicines</option>
-      <option value="packed">Packed Food</option>
-    </select>
-    <input id="shoppingQtyNeeded" type="number" min="1" step="1" value="1" required>
-    <button type="submit">Add To List</button>
-  </form>
+<div class="hero">
+  <h1>Welcome to FreshTrack</h1>
+  <p>Your ultimate solution for managing fresh produce inventory, tracking expiry dates, and shopping efficiently. Reduce food waste and promote healthy eating with our innovative platform.</p>
+  <a href="login.html" class="cta-button">Login to Get Started</a>
 </div>
 
-<table>
-  <thead>
-    <tr>
-      <th>Item</th>
-      <th>Category</th>
-      <th>Qty Needed</th>
-      <th>Action</th>
-    </tr>
-  </thead>
-  <tbody id="shoppingBody"></tbody>
-</table>
+<div class="features">
+  <div class="feature">
+    <h3>Inventory Management</h3>
+    <p>Keep track of your grains, vegetables, fruits, pulses, and packed foods.</p>
+  </div>
+  <div class="feature">
+    <h3>Expiry Alerts</h3>
+    <p>Get notified before items expire to minimize waste.</p>
+  </div>
+  <div class="feature">
+    <h3>Easy Shopping</h3>
+    <p>Shop for fresh items directly from our platform.</p>
+  </div>
+</div>
 
 <footer>
   <div class="footer-top">
@@ -80,6 +71,5 @@
 
 <script src="js/common.js"></script>
 <script src="js/ui.js"></script>
-<script src="js/shopping.js"></script>
 </body>
 </html>
