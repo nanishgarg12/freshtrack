@@ -24,6 +24,7 @@ app.use("/api/auth", require("./routes/authRoutes"));
 app.use("/api/items", require("./routes/itemRoutes"));
 app.use("/api/admin", require("./routes/adminRoutes"));
 app.use("/api/scan", require("./routes/scanRoutes"));
+app.use("/api/donations", require("./routes/donationRoutes"));
 
 /* HEALTH CHECK */
 app.get("/healthz", (req, res) => {

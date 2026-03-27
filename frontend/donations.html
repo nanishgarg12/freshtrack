@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FreshTrack Food Donations</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="navbar">
+  <h2>Food Donations</h2>
+  <div class="top-links">
+    <span>Hi, <strong id="userName">User</strong></span>
+    <a href="dashboard.html">Dashboard</a>
+    <a href="add-item.html">Add Item</a>
+    <a href="shopping.html">Shopping List</a>
+    <a id="adminLink" href="admin.html">Analytics</a>
+    <button type="button" onclick="logout()">Logout</button>
+  </div>
+</header>
+
+<main class="donations-layout">
+  <section class="donations-left">
+    <div class="form-box">
+      <h3>Post a Donation</h3>
+      <form id="donationForm">
+        <input id="donationItemName" placeholder="Food name (e.g., cooked rice, bread)" required>
+
+        <div class="donation-row">
+          <input id="donationQuantity" type="number" min="0.01" step="0.01" placeholder="Quantity" required>
+          <input id="donationUnit" placeholder="Unit (kg / pack / plate)">
+        </div>
+
+        <div class="donation-row">
+          <input id="donationExpiryDate" type="date" placeholder="Expiry date (optional)">
+          <input id="donationLocation" placeholder="Pickup location (optional)">
+        </div>
+
+        <textarea id="donationNotes" placeholder="Notes (optional)"></textarea>
+        <button type="submit">Post Donation</button>
+      </form>
+    </div>
+
+    <div class="donations-header">
+      <h3 class="section-title">Available Donations</h3>
+      <button type="button" class="btn-secondary" id="refreshDonationsBtn">Refresh</button>
+    </div>
+
+    <div id="donationsList" class="donations-grid"></div>
+  </section>
+
+  <aside class="donations-right">
+    <div class="donations-header">
+      <h3 class="section-title">My Chats</h3>
+      <button type="button" class="btn-secondary" id="refreshThreadsBtn">Refresh</button>
+    </div>
+    <div id="threadsList" class="threads-list"></div>
+    <p class="muted">Tip: Open a donation and click Chat to message the donor.</p>
+  </aside>
+</main>
+
+<div id="chatModal" class="modal-overlay" aria-hidden="true">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="chatTitle">
+    <div class="modal-header">
+      <div>
+        <h3 id="chatTitle">Chat</h3>
+        <p id="chatSubtitle"></p>
+      </div>
+      <button type="button" class="btn-secondary" id="chatCloseBtn">Close</button>
+    </div>
+
+    <div id="chatMessages" class="modal-body chat-messages"></div>
+
+    <form id="chatForm" class="modal-footer">
+      <input id="chatInput" placeholder="Type a message..." autocomplete="off" required>
+      <button type="submit">Send</button>
+    </form>
+  </div>
+</div>
+
+<script src="js/common.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/donations.js"></script>
+</body>
+</html>

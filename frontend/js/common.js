@@ -12,6 +12,25 @@ function getRole() {
   return localStorage.getItem("role") || "user";
 }
 
+function getUserId() {
+  const token = getToken();
+  if (!token) return "";
+
+  const parts = token.split(".");
+  if (parts.length !== 3) return "";
+
+  const base64Url = parts[1];
+  const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = base64 + "=".repeat((4 - (base64.length % 4)) % 4);
+
+  try {
+    const payload = JSON.parse(atob(padded));
+    return payload?.id || "";
+  } catch {
+    return "";
+  }
+}
+
 function setRole(role) {
   localStorage.setItem("role", role || "user");
 }
@@ -99,6 +118,7 @@ window.APP = {
   API_BASE,
   getToken,
   setToken,
+  getUserId,
   getRole,
   setRole,
   isAdmin,
