@@ -1,9 +1,29 @@
 const express = require("express");
 const multer = require("multer");
 const auth = require("../middleware/authMiddleware");
+const BarcodeProduct = require("../models/BarcodeProduct");
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
+
+function isLikelyBarcode(text) {
+  const value = (text || "").trim();
+  return /^\d{8,14}$/.test(value);
+}
+
+function buildBarcodeHints(barcode) {
+  const hints = [];
+
+  if (!process.env.BARCODE_LOOKUP_API_KEY) {
+    hints.push("Set BARCODE_LOOKUP_API_KEY for higher lookup success.");
+  }
+
+  if (/^(978|979)\d{10}$/.test(barcode)) {
+    hints.push("This barcode looks like an ISBN (books), so food databases may not contain it.");
+  }
+
+  return hints;
+}
 
 function normalizeQuantityToUnit(quantityText) {
   if (!quantityText) return { qty: 1, unit: "pcs" };
@@ -43,6 +63,33 @@ function normalizeBarcodeProduct(product, source) {
     unit: normalizedQty.unit,
     category: inferCategory(textBlob)
   };
+}
+
+function normalizeCachedProduct(cached) {
+  return {
+    source: cached.source || "cache",
+    barcode: cached.barcode,
+    name: cached.name || "",
+    brand: cached.brand || "",
+    quantity: "",
+    qty: typeof cached.qty === "number" ? cached.qty : 1,
+    unit: cached.unit || "pcs",
+    category: cached.category || "packed"
+  };
+}
+
+function normalizeInventoryCategory(category) {
+  const value = (category || "").trim().toLowerCase();
+  const aliases = {
+    vegetable: "vegetables",
+    grain: "grains",
+    pulse: "pulses",
+    medicine: "medicines",
+    packedfood: "packed",
+    "packed food": "packed"
+  };
+
+  return aliases[value] || value;
 }
 
 async function fetchOpenFoodFacts(barcode) {
@@ -117,7 +164,24 @@ function toIsoDate(year, month, day) {
 
   if (!y || !m || !d || m < 1 || m > 12 || d < 1 || d > 31) return null;
 
+  const candidate = new Date(Date.UTC(y, m - 1, d));
+  if (
+    candidate.getUTCFullYear() !== y ||
+    candidate.getUTCMonth() !== m - 1 ||
+    candidate.getUTCDate() !== d
+  ) {
+    return null;
+  }
+
   return `${String(y).padStart(4, "0")}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
+
+function lastDayOfMonth(year, month) {
+  const y = Number(year);
+  const m = Number(month);
+  if (!y || !m || m < 1 || m > 12) return null;
+
+  return new Date(Date.UTC(y, m, 0)).getUTCDate();
 }
 
 function normalizeYear(yearText) {
@@ -127,9 +191,7 @@ function normalizeYear(yearText) {
   return y;
 }
 
-function extractDateFromText(text) {
-  const clean = (text || "").replace(/\s+/g, " ").trim();
-
+function extractDateFromTextBlob(clean) {
   const ymd = clean.match(/\b(20\d{2}|19\d{2})[\/.\-](\d{1,2})[\/.\-](\d{1,2})\b/);
   if (ymd) return toIsoDate(ymd[1], ymd[2], ymd[3]);
 
@@ -161,7 +223,46 @@ function extractDateFromText(text) {
     return toIsoDate(year, month, textual[1]);
   }
 
+  const monthYearText = clean.match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s*(\d{2,4})\b/i);
+  if (monthYearText) {
+    const year = normalizeYear(monthYearText[2]);
+    const month = monthMap[monthYearText[1].slice(0, 3).toLowerCase()];
+    const day = lastDayOfMonth(year, month);
+    return toIsoDate(year, month, day);
+  }
+
+  const yearMonth = clean.match(/\b(20\d{2}|19\d{2})[\/.\-](\d{1,2})(?![\/.\-]\d{1,2})\b/);
+  if (yearMonth) {
+    const day = lastDayOfMonth(yearMonth[1], yearMonth[2]);
+    return toIsoDate(yearMonth[1], yearMonth[2], day);
+  }
+
+  const monthYear = clean.match(/\b(\d{1,2})[\/.\-](\d{2,4})\b/);
+  if (monthYear) {
+    const year = normalizeYear(monthYear[2]);
+    const day = lastDayOfMonth(year, monthYear[1]);
+    return toIsoDate(year, monthYear[1], day);
+  }
+
   return null;
+}
+
+function extractDateFromText(text) {
+  const clean = (text || "").replace(/\s+/g, " ").trim();
+  if (!clean) return null;
+
+  const priorityMarkers = [/\bexp(?:iry)?\b/i, /\bbest before\b/i, /\buse by\b/i, /\buse before\b/i, /\bbb\b/i];
+
+  for (const marker of priorityMarkers) {
+    const idx = clean.search(marker);
+    if (idx === -1) continue;
+
+    const windowText = clean.slice(idx, idx + 90);
+    const parsed = extractDateFromTextBlob(windowText);
+    if (parsed) return parsed;
+  }
+
+  return extractDateFromTextBlob(clean);
 }
 
 router.use(auth);
@@ -173,22 +274,112 @@ router.get("/barcode-lookup/:barcode", async (req, res) => {
       return res.status(400).json({ message: "Barcode is required" });
     }
 
-    const providers = [fetchOpenFoodFacts, fetchUpcItemDb, fetchBarcodeLookup];
+    if (!isLikelyBarcode(barcode)) {
+      return res.status(400).json({ message: "Barcode must be 8-14 digits" });
+    }
+
+    const cached = await BarcodeProduct.findOne({ barcode }).lean();
+    if (cached) {
+      await BarcodeProduct.updateOne({ _id: cached._id }, { $set: { lastLookupAt: new Date(), updatedBy: req.userId } });
+      return res.json({ product: normalizeCachedProduct(cached) });
+    }
+
+    const providers = [
+      { name: "openfoodfacts", fn: fetchOpenFoodFacts },
+      { name: "upcitemdb", fn: fetchUpcItemDb },
+      { name: "barcodelookup", fn: fetchBarcodeLookup }
+    ];
+
+    let providerErrors = 0;
 
     for (const provider of providers) {
       try {
-        const product = await provider(barcode);
+        const product = await provider.fn(barcode);
         if (product) {
+          await BarcodeProduct.updateOne(
+            { barcode },
+            {
+              $set: {
+                name: product.name,
+                brand: product.brand,
+                qty: product.qty,
+                unit: product.unit,
+                category: product.category,
+                source: product.source,
+                lastLookupAt: new Date(),
+                updatedBy: req.userId
+              },
+              $setOnInsert: {
+                barcode,
+                createdBy: req.userId
+              }
+            },
+            { upsert: true }
+          );
           return res.json({ product });
         }
       } catch {
+        providerErrors += 1;
         // Try next provider.
       }
     }
 
-    return res.status(404).json({ message: "Product not found for barcode" });
+    if (providerErrors === providers.length) {
+      return res.status(502).json({ message: "Barcode lookup providers unavailable" });
+    }
+
+    const hints = buildBarcodeHints(barcode);
+
+    return res.json({
+      product: null,
+      message: "Product not found for barcode",
+      ...(hints.length ? { hints } : {})
+    });
   } catch (error) {
     return res.status(500).json({ message: "Barcode lookup failed" });
+  }
+});
+
+router.post("/barcode-cache", async (req, res) => {
+  try {
+    const barcode = (req.body?.barcode || "").trim();
+    if (!barcode) return res.status(400).json({ message: "Barcode is required" });
+    if (!isLikelyBarcode(barcode)) return res.status(400).json({ message: "Barcode must be 8-14 digits" });
+
+    const name = (req.body?.name || "").trim();
+    if (!name) return res.status(400).json({ message: "Name is required" });
+
+    const qty = req.body?.qty === undefined || req.body?.qty === "" ? 1 : Number(req.body.qty);
+    if (Number.isNaN(qty) || qty < 0) {
+      return res.status(400).json({ message: "Quantity must be a valid number" });
+    }
+
+    const unit = (req.body?.unit || "pcs").trim() || "pcs";
+    const category = normalizeInventoryCategory(req.body?.category) || "packed";
+
+    const doc = await BarcodeProduct.findOneAndUpdate(
+      { barcode },
+      {
+        $set: {
+          name,
+          qty,
+          unit,
+          category,
+          source: "user",
+          lastLookupAt: new Date(),
+          updatedBy: req.userId
+        },
+        $setOnInsert: {
+          barcode,
+          createdBy: req.userId
+        }
+      },
+      { upsert: true, new: true }
+    ).lean();
+
+    return res.json({ message: "Barcode saved", product: normalizeCachedProduct(doc) });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to save barcode" });
   }
 });
 
@@ -215,13 +406,24 @@ router.post("/expiry-ocr", upload.single("image"), async (req, res) => {
       body: form
     });
 
-    const data = await response.json();
-
-    if (!response.ok || data?.IsErroredOnProcessing) {
-      return res.status(422).json({ message: "OCR could not read text", details: data?.ErrorMessage || null });
+    let data = null;
+    try {
+      data = await response.json();
+    } catch {
+      data = null;
     }
 
     const rawText = (data?.ParsedResults || []).map((r) => r.ParsedText || "").join("\n");
+
+    if (!response.ok || data?.IsErroredOnProcessing) {
+      return res.json({
+        rawText,
+        detectedDate: null,
+        message: "OCR could not read text",
+        details: data?.ErrorMessage || null
+      });
+    }
+
     const detectedDate = extractDateFromText(rawText);
 
     return res.json({ rawText, detectedDate });

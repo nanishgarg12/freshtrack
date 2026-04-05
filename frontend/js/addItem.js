@@ -166,7 +166,9 @@ async function fillFromBarcode(code) {
     const product = data?.product;
 
     if (!product) {
-      updateScannerStatus("Product not found. Fill details manually.");
+      const message = data?.message || "Product not found. Fill details manually.";
+      const hints = Array.isArray(data?.hints) ? data.hints.join(" ") : "";
+      updateScannerStatus([message, hints].filter(Boolean).join(" "));
       return;
     }
 
@@ -184,7 +186,8 @@ async function fillFromBarcode(code) {
 
     updateScannerStatus(`Product details filled via ${product.source}. Scan expiry text or enter manually.`);
   } catch (err) {
-    updateScannerStatus("Product lookup failed. You can still fill fields manually.");
+    const message = err?.message ? `Product lookup failed: ${err.message}` : "Product lookup failed.";
+    updateScannerStatus(`${message} You can still fill fields manually.`);
   }
 }
 
@@ -194,7 +197,25 @@ function toIsoDate(year, month, day) {
   const d = Number(day);
 
   if (!y || !m || !d || m < 1 || m > 12 || d < 1 || d > 31) return null;
+
+  const candidate = new Date(Date.UTC(y, m - 1, d));
+  if (
+    candidate.getUTCFullYear() !== y ||
+    candidate.getUTCMonth() !== m - 1 ||
+    candidate.getUTCDate() !== d
+  ) {
+    return null;
+  }
+
   return `${String(y).padStart(4, "0")}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
+
+function lastDayOfMonth(year, month) {
+  const y = Number(year);
+  const m = Number(month);
+  if (!y || !m || m < 1 || m > 12) return null;
+
+  return new Date(Date.UTC(y, m, 0)).getUTCDate();
 }
 
 function normalizeYear(yearText) {
@@ -204,9 +225,7 @@ function normalizeYear(yearText) {
   return y;
 }
 
-function extractDateFromText(text) {
-  const clean = (text || "").replace(/\s+/g, " ").trim();
-
+function extractDateFromTextBlob(clean) {
   const ymd = clean.match(/\b(20\d{2}|19\d{2})[\/.\-](\d{1,2})[\/.\-](\d{1,2})\b/);
   if (ymd) return toIsoDate(ymd[1], ymd[2], ymd[3]);
 
@@ -238,7 +257,46 @@ function extractDateFromText(text) {
     return toIsoDate(year, month, textual[1]);
   }
 
+  const monthYearText = clean.match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s*(\d{2,4})\b/i);
+  if (monthYearText) {
+    const year = normalizeYear(monthYearText[2]);
+    const month = monthMap[monthYearText[1].slice(0, 3).toLowerCase()];
+    const day = lastDayOfMonth(year, month);
+    return toIsoDate(year, month, day);
+  }
+
+  const yearMonth = clean.match(/\b(20\d{2}|19\d{2})[\/.\-](\d{1,2})(?![\/.\-]\d{1,2})\b/);
+  if (yearMonth) {
+    const day = lastDayOfMonth(yearMonth[1], yearMonth[2]);
+    return toIsoDate(yearMonth[1], yearMonth[2], day);
+  }
+
+  const monthYear = clean.match(/\b(\d{1,2})[\/.\-](\d{2,4})\b/);
+  if (monthYear) {
+    const year = normalizeYear(monthYear[2]);
+    const day = lastDayOfMonth(year, monthYear[1]);
+    return toIsoDate(year, monthYear[1], day);
+  }
+
   return null;
+}
+
+function extractDateFromText(text) {
+  const clean = (text || "").replace(/\s+/g, " ").trim();
+  if (!clean) return null;
+
+  const priorityMarkers = [/\bexp(?:iry)?\b/i, /\bbest before\b/i, /\buse by\b/i, /\buse before\b/i, /\bbb\b/i];
+
+  for (const marker of priorityMarkers) {
+    const idx = clean.search(marker);
+    if (idx === -1) continue;
+
+    const windowText = clean.slice(idx, idx + 90);
+    const parsed = extractDateFromTextBlob(windowText);
+    if (parsed) return parsed;
+  }
+
+  return extractDateFromTextBlob(clean);
 }
 
 function preprocessCanvasForOcr(canvas) {
@@ -365,6 +423,27 @@ async function addItem(event) {
       method: "POST",
       body: formData
     });
+
+    const barcode = (document.getElementById("barcodeInput")?.value || "").trim();
+    if (barcode) {
+      try {
+        await APP.apiFetch("/scan/barcode-cache", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            barcode,
+            name,
+            qty,
+            unit,
+            category
+          })
+        });
+      } catch {
+        // Best-effort: inventory save succeeded even if barcode cache fails.
+      }
+    }
 
     alert(data.message || "Item added successfully");
     stopCamera();
