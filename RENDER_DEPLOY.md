@@ -30,6 +30,10 @@ Optional scanner APIs:
 - `OCR_SPACE_API_KEY`
 - `BARCODE_LOOKUP_API_KEY`
 
+Notes:
+- Without `BARCODE_LOOKUP_API_KEY`, barcode lookups rely on free providers and some products may return "Product not found".
+- When that happens, use **Save Barcode** on the Add Item screen to store the product details for future scans.
+
 Already provided via `render.yaml`:
 - `NODE_ENV=production`
 - `ENABLE_IN_PROCESS_CRON=false`

@@ -6,9 +6,88 @@ const BarcodeProduct = require("../models/BarcodeProduct");
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
 
+function computeGtinCheckDigit(dataDigits) {
+  let sum = 0;
+  let weight = 3;
+
+  for (let i = dataDigits.length - 1; i >= 0; i--) {
+    const digit = dataDigits.charCodeAt(i) - 48;
+    if (digit < 0 || digit > 9) return null;
+    sum += digit * weight;
+    weight = weight === 3 ? 1 : 3;
+  }
+
+  return (10 - (sum % 10)) % 10;
+}
+
+function isValidGtin(code) {
+  if (!/^\d+$/.test(code)) return false;
+  if (![8, 12, 13, 14].includes(code.length)) return false;
+
+  const expected = computeGtinCheckDigit(code.slice(0, -1));
+  if (expected === null) return false;
+
+  return expected === Number(code.slice(-1));
+}
+
+function normalizeBarcodeInput(text) {
+  const raw = (text || "").toString().trim();
+  if (!raw) return "";
+
+  const digits = raw.replace(/\D/g, "");
+  if (!digits) return "";
+
+  if (digits.length >= 8 && digits.length <= 14) return digits;
+
+  if (digits.length > 14) {
+    for (const len of [14, 13, 12, 8]) {
+      if (digits.length < len) continue;
+      const prefix = digits.slice(0, len);
+      if (isValidGtin(prefix)) return prefix;
+    }
+
+    return digits.slice(0, 14);
+  }
+
+  return digits;
+}
+
 function isLikelyBarcode(text) {
   const value = (text || "").trim();
   return /^\d{8,14}$/.test(value);
+}
+
+function buildBarcodeCandidates(barcode) {
+  const value = (barcode || "").trim();
+  if (!isLikelyBarcode(value)) return [value].filter(Boolean);
+
+  const candidates = new Set();
+  candidates.add(value);
+
+  if (value.length === 12) {
+    candidates.add(`0${value}`);
+    candidates.add(value.padStart(14, "0"));
+  } else if (value.length === 13) {
+    candidates.add(value.padStart(14, "0"));
+    if (value.startsWith("0")) candidates.add(value.slice(1));
+  } else if (value.length === 14) {
+    if (value.startsWith("0")) candidates.add(value.slice(1));
+    if (value.startsWith("00")) candidates.add(value.slice(2));
+  }
+
+  return Array.from(candidates);
+}
+
+async function findCachedBarcodeProduct(barcode, candidates) {
+  const direct = await BarcodeProduct.findOne({ barcode }).lean();
+  if (direct) return direct;
+
+  if (Array.isArray(candidates) && candidates.length) {
+    const fallback = await BarcodeProduct.findOne({ barcode: { $in: candidates } }).lean();
+    if (fallback) return fallback;
+  }
+
+  return null;
 }
 
 function buildBarcodeHints(barcode) {
@@ -21,6 +100,8 @@ function buildBarcodeHints(barcode) {
   if (/^(978|979)\d{10}$/.test(barcode)) {
     hints.push("This barcode looks like an ISBN (books), so food databases may not contain it.");
   }
+
+  hints.push("If lookup fails, fill item details and use 'Save Barcode' to make future scans auto-fill.");
 
   return hints;
 }
@@ -269,7 +350,7 @@ router.use(auth);
 
 router.get("/barcode-lookup/:barcode", async (req, res) => {
   try {
-    const barcode = (req.params.barcode || "").trim();
+    const barcode = normalizeBarcodeInput(req.params.barcode);
     if (!barcode) {
       return res.status(400).json({ message: "Barcode is required" });
     }
@@ -278,7 +359,9 @@ router.get("/barcode-lookup/:barcode", async (req, res) => {
       return res.status(400).json({ message: "Barcode must be 8-14 digits" });
     }
 
-    const cached = await BarcodeProduct.findOne({ barcode }).lean();
+    const candidates = buildBarcodeCandidates(barcode);
+
+    const cached = await findCachedBarcodeProduct(barcode, candidates);
     if (cached) {
       await BarcodeProduct.updateOne({ _id: cached._id }, { $set: { lastLookupAt: new Date(), updatedBy: req.userId } });
       return res.json({ product: normalizeCachedProduct(cached) });
@@ -293,34 +376,45 @@ router.get("/barcode-lookup/:barcode", async (req, res) => {
     let providerErrors = 0;
 
     for (const provider of providers) {
-      try {
-        const product = await provider.fn(barcode);
-        if (product) {
-          await BarcodeProduct.updateOne(
-            { barcode },
-            {
-              $set: {
-                name: product.name,
-                brand: product.brand,
-                qty: product.qty,
-                unit: product.unit,
-                category: product.category,
-                source: product.source,
-                lastLookupAt: new Date(),
-                updatedBy: req.userId
+      let providerHadSuccessfulCall = false;
+      let providerThrewEveryTime = true;
+
+      for (const candidate of candidates) {
+        try {
+          const product = await provider.fn(candidate);
+          providerHadSuccessfulCall = true;
+          providerThrewEveryTime = false;
+
+          if (product) {
+            await BarcodeProduct.updateOne(
+              { barcode },
+              {
+                $set: {
+                  name: product.name,
+                  brand: product.brand,
+                  qty: product.qty,
+                  unit: product.unit,
+                  category: product.category,
+                  source: product.source,
+                  lastLookupAt: new Date(),
+                  updatedBy: req.userId
+                },
+                $setOnInsert: {
+                  barcode,
+                  createdBy: req.userId
+                }
               },
-              $setOnInsert: {
-                barcode,
-                createdBy: req.userId
-              }
-            },
-            { upsert: true }
-          );
-          return res.json({ product });
+              { upsert: true }
+            );
+            return res.json({ product });
+          }
+        } catch {
+          // Keep trying other candidates/providers.
         }
-      } catch {
+      }
+
+      if (!providerHadSuccessfulCall && providerThrewEveryTime) {
         providerErrors += 1;
-        // Try next provider.
       }
     }
 
@@ -342,7 +436,7 @@ router.get("/barcode-lookup/:barcode", async (req, res) => {
 
 router.post("/barcode-cache", async (req, res) => {
   try {
-    const barcode = (req.body?.barcode || "").trim();
+    const barcode = normalizeBarcodeInput(req.body?.barcode);
     if (!barcode) return res.status(400).json({ message: "Barcode is required" });
     if (!isLikelyBarcode(barcode)) return res.status(400).json({ message: "Barcode must be 8-14 digits" });
 
@@ -357,8 +451,12 @@ router.post("/barcode-cache", async (req, res) => {
     const unit = (req.body?.unit || "pcs").trim() || "pcs";
     const category = normalizeInventoryCategory(req.body?.category) || "packed";
 
+    const candidates = buildBarcodeCandidates(barcode);
+    const existing = await BarcodeProduct.findOne({ barcode: { $in: candidates } }).lean();
+    const targetBarcode = existing?.barcode || barcode;
+
     const doc = await BarcodeProduct.findOneAndUpdate(
-      { barcode },
+      { barcode: targetBarcode },
       {
         $set: {
           name,
@@ -370,7 +468,7 @@ router.post("/barcode-cache", async (req, res) => {
           updatedBy: req.userId
         },
         $setOnInsert: {
-          barcode,
+          barcode: targetBarcode,
           createdBy: req.userId
         }
       },

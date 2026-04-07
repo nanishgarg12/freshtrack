@@ -38,6 +38,13 @@
       <button type="button" onclick="fillFromManualBarcode()">Fetch Product</button>
     </div>
 
+    <div id="barcodeSaveBox" class="barcode-save is-hidden">
+      <div class="barcode-save-copy">
+        <strong>Not found?</strong> Fill the item details below and click <strong>Save Barcode</strong> to remember this product for next time.
+      </div>
+      <button type="button" onclick="saveBarcodeTemplate()">Save Barcode</button>
+    </div>
+
     <p id="scannerStatus" class="scanner-status">Scanner idle.</p>
   </div>
 

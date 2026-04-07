@@ -1,5 +1,57 @@
 let mediaStream = null;
 
+function computeGtinCheckDigit(dataDigits) {
+  let sum = 0;
+  let weight = 3;
+
+  for (let i = dataDigits.length - 1; i >= 0; i--) {
+    const digit = dataDigits.charCodeAt(i) - 48;
+    if (digit < 0 || digit > 9) return null;
+    sum += digit * weight;
+    weight = weight === 3 ? 1 : 3;
+  }
+
+  return (10 - (sum % 10)) % 10;
+}
+
+function isValidGtin(code) {
+  if (!/^\d+$/.test(code)) return false;
+  if (![8, 12, 13, 14].includes(code.length)) return false;
+
+  const expected = computeGtinCheckDigit(code.slice(0, -1));
+  if (expected === null) return false;
+
+  return expected === Number(code.slice(-1));
+}
+
+function normalizeBarcodeInput(text) {
+  const raw = (text || "").toString().trim();
+  if (!raw) return "";
+
+  const digits = raw.replace(/\D/g, "");
+  if (!digits) return "";
+
+  if (digits.length >= 8 && digits.length <= 14) return digits;
+
+  if (digits.length > 14) {
+    for (const len of [14, 13, 12, 8]) {
+      if (digits.length < len) continue;
+      const prefix = digits.slice(0, len);
+      if (isValidGtin(prefix)) return prefix;
+    }
+
+    return digits.slice(0, 14);
+  }
+
+  return digits;
+}
+
+function setBarcodeSaveVisible(visible) {
+  const box = document.getElementById("barcodeSaveBox");
+  if (!box) return;
+  box.classList.toggle("is-hidden", !visible);
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   if (!APP.requireAuth()) return;
 
@@ -119,6 +171,7 @@ async function scanBarcode() {
   try {
     await startCamera();
     updateScannerStatus("Scanning barcode...");
+    setBarcodeSaveVisible(false);
 
     for (let attempt = 1; attempt <= 14; attempt++) {
       const canvas = grabFrameToCanvas();
@@ -131,9 +184,10 @@ async function scanBarcode() {
       if (!code) code = await detectWithQuagga(canvas);
 
       if (code) {
-        document.getElementById("barcodeInput").value = code;
-        updateScannerStatus(`Barcode detected: ${code}. Fetching product details...`);
-        await fillFromBarcode(code);
+        const normalized = normalizeBarcodeInput(code);
+        document.getElementById("barcodeInput").value = normalized || code;
+        updateScannerStatus(`Barcode detected: ${normalized || code}. Fetching product details...`);
+        await fillFromBarcode(normalized || code);
         return;
       }
 
@@ -149,18 +203,21 @@ async function scanBarcode() {
 }
 
 async function fillFromManualBarcode() {
-  const code = (document.getElementById("barcodeInput").value || "").trim();
-  if (!code) {
+  const raw = (document.getElementById("barcodeInput").value || "").trim();
+  if (!raw) {
     alert("Enter a barcode first.");
     return;
   }
 
+  const code = normalizeBarcodeInput(raw) || raw;
+  document.getElementById("barcodeInput").value = code;
   await fillFromBarcode(code);
 }
 
 async function fillFromBarcode(code) {
   try {
     updateScannerStatus("Looking up product details...");
+    setBarcodeSaveVisible(false);
 
     const data = await APP.apiFetch(`/scan/barcode-lookup/${encodeURIComponent(code)}`);
     const product = data?.product;
@@ -169,6 +226,8 @@ async function fillFromBarcode(code) {
       const message = data?.message || "Product not found. Fill details manually.";
       const hints = Array.isArray(data?.hints) ? data.hints.join(" ") : "";
       updateScannerStatus([message, hints].filter(Boolean).join(" "));
+      setBarcodeSaveVisible(Boolean((document.getElementById("barcodeInput")?.value || "").trim()));
+      document.getElementById("name")?.focus();
       return;
     }
 
@@ -188,6 +247,51 @@ async function fillFromBarcode(code) {
   } catch (err) {
     const message = err?.message ? `Product lookup failed: ${err.message}` : "Product lookup failed.";
     updateScannerStatus(`${message} You can still fill fields manually.`);
+    setBarcodeSaveVisible(Boolean((document.getElementById("barcodeInput")?.value || "").trim()));
+  }
+}
+
+async function saveBarcodeTemplate() {
+  const barcode = normalizeBarcodeInput(document.getElementById("barcodeInput")?.value || "");
+  if (!barcode) {
+    alert("Enter a barcode first.");
+    return;
+  }
+
+  const name = (document.getElementById("name")?.value || "").trim();
+  if (!name) {
+    alert("Enter item name first.");
+    document.getElementById("name")?.focus();
+    return;
+  }
+
+  const category = document.getElementById("category")?.value || "packed";
+  const qtyText = document.getElementById("qty")?.value;
+  const qty = qtyText === undefined || qtyText === "" ? 1 : Number(qtyText);
+  const unit = (document.getElementById("unit")?.value || "pcs").trim();
+
+  try {
+    updateScannerStatus("Saving barcode...");
+    await APP.apiFetch("/scan/barcode-cache", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        barcode,
+        name,
+        qty,
+        unit,
+        category
+      })
+    });
+
+    setBarcodeSaveVisible(false);
+    updateScannerStatus("Barcode saved. Next scans will auto-fill product details.");
+  } catch (err) {
+    const message = err?.message ? `Failed to save barcode: ${err.message}` : "Failed to save barcode.";
+    updateScannerStatus(message);
+    alert(message);
   }
 }
 
@@ -465,3 +569,4 @@ window.stopCamera = stopCamera;
 window.scanBarcode = scanBarcode;
 window.scanExpiryText = scanExpiryText;
 window.fillFromManualBarcode = fillFromManualBarcode;
+window.saveBarcodeTemplate = saveBarcodeTemplate;
