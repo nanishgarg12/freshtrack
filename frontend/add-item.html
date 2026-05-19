@@ -23,7 +23,10 @@
 
   <div class="scanner-box">
     <h4>Quick Scan</h4>
-    <video id="scannerVideo" autoplay playsinline muted></video>
+    <div class="camera-frame">
+      <video id="scannerVideo" autoplay playsinline muted></video>
+      <div class="lens-target" aria-hidden="true"></div>
+    </div>
     <canvas id="scannerCanvas" class="hidden-canvas"></canvas>
 
     <div class="scanner-controls">

@@ -329,81 +329,169 @@ function normalizeYear(yearText) {
   return y;
 }
 
-function extractDateFromTextBlob(clean) {
-  const ymd = clean.match(/\b(20\d{2}|19\d{2})[\/.\-](\d{1,2})[\/.\-](\d{1,2})\b/);
-  if (ymd) return toIsoDate(ymd[1], ymd[2], ymd[3]);
+const monthMap = {
+  jan: 1,
+  feb: 2,
+  mar: 3,
+  apr: 4,
+  may: 5,
+  jun: 6,
+  jul: 7,
+  aug: 8,
+  sep: 9,
+  sept: 9,
+  oct: 10,
+  nov: 11,
+  dec: 12
+};
 
-  const dmy = clean.match(/\b(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})\b/);
-  if (dmy) {
-    const year = normalizeYear(dmy[3]);
-    return toIsoDate(year, dmy[2], dmy[1]);
-  }
+function normalizeOcrText(text) {
+  return (text || "")
+    .replace(/[|]/g, "1")
+    .replace(/[\u2013\u2014]/g, "-")
+    .replace(/\b([Ee])\s*[Xx]\s*[Pp]\b/g, "EXP")
+    .replace(/\b([Mm])\s*[Ff]\s*[Gg]\b/g, "MFG")
+    .replace(/\b([Bb])\s*[Bb]\s*[Ee]?\b/g, "BBE")
+    .replace(/\s*([/.\-:])\s*/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
-  const monthMap = {
-    jan: 1,
-    feb: 2,
-    mar: 3,
-    apr: 4,
-    may: 5,
-    jun: 6,
-    jul: 7,
-    aug: 8,
-    sep: 9,
-    oct: 10,
-    nov: 11,
-    dec: 12
+function addDateCandidate(candidates, date, score) {
+  if (!date) return;
+  const year = Number(date.slice(0, 4));
+  if (year < 1990 || year > 2099) return;
+  const existing = candidates.get(date);
+  if (!existing || score > existing) candidates.set(date, score);
+}
+
+function collectDateCandidates(text, markerScore = 0) {
+  const clean = normalizeOcrText(text);
+  const candidates = new Map();
+
+  const add = (year, month, day, score) => {
+    addDateCandidate(candidates, toIsoDate(normalizeYear(year), month, day), score + markerScore);
+  };
+  const addMonthYear = (year, month, score) => {
+    const normalizedYear = normalizeYear(year);
+    const day = lastDayOfMonth(normalizedYear, month);
+    addDateCandidate(candidates, toIsoDate(normalizedYear, month, day), score + markerScore);
   };
 
-  const textual = clean.match(/\b(\d{1,2})\s*(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s*(\d{2,4})\b/i);
-  if (textual) {
-    const year = normalizeYear(textual[3]);
-    const month = monthMap[textual[2].slice(0, 3).toLowerCase()];
-    return toIsoDate(year, month, textual[1]);
+  for (const match of clean.matchAll(/\b(20\d{2}|19\d{2})[\/.\-](\d{1,2})[\/.\-](\d{1,2})\b/g)) {
+    add(match[1], match[2], match[3], 88);
   }
 
-  const monthYearText = clean.match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s*(\d{2,4})\b/i);
-  if (monthYearText) {
-    const year = normalizeYear(monthYearText[2]);
-    const month = monthMap[monthYearText[1].slice(0, 3).toLowerCase()];
-    const day = lastDayOfMonth(year, month);
-    return toIsoDate(year, month, day);
+  for (const match of clean.matchAll(/\b(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})\b/g)) {
+    add(match[3], match[2], match[1], 92);
   }
 
-  const yearMonth = clean.match(/\b(20\d{2}|19\d{2})[\/.\-](\d{1,2})(?![\/.\-]\d{1,2})\b/);
-  if (yearMonth) {
-    const day = lastDayOfMonth(yearMonth[1], yearMonth[2]);
-    return toIsoDate(yearMonth[1], yearMonth[2], day);
+  for (const match of clean.matchAll(/\b(\d{1,2})\s*(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*[\/.\-\s]*(\d{2,4})\b/gi)) {
+    add(match[3], monthMap[match[2].slice(0, 4).toLowerCase()] || monthMap[match[2].slice(0, 3).toLowerCase()], match[1], 94);
   }
 
-  const monthYear = clean.match(/\b(\d{1,2})[\/.\-](\d{2,4})\b/);
-  if (monthYear) {
-    const year = normalizeYear(monthYear[2]);
-    const day = lastDayOfMonth(year, monthYear[1]);
-    return toIsoDate(year, monthYear[1], day);
+  for (const match of clean.matchAll(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*[\/.\-\s]*(\d{1,2})[,]?[\/.\-\s]*(\d{2,4})\b/gi)) {
+    add(match[3], monthMap[match[1].slice(0, 4).toLowerCase()] || monthMap[match[1].slice(0, 3).toLowerCase()], match[2], 90);
   }
 
-  return null;
+  for (const match of clean.matchAll(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*[\/.\-\s]*(\d{2,4})\b/gi)) {
+    addMonthYear(match[2], monthMap[match[1].slice(0, 4).toLowerCase()] || monthMap[match[1].slice(0, 3).toLowerCase()], 84);
+  }
+
+  for (const match of clean.matchAll(/\b(20\d{2}|19\d{2})[\/.\-](\d{1,2})(?![\/.\-]\d{1,2})\b/g)) {
+    addMonthYear(match[1], match[2], 78);
+  }
+
+  for (const match of clean.matchAll(/\b(\d{1,2})[\/.\-](\d{2,4})\b/g)) {
+    addMonthYear(match[2], match[1], 82);
+  }
+
+  for (const match of clean.matchAll(/\b(0[1-9]|1[0-2])\s*(\d{2})\b/g)) {
+    addMonthYear(match[2], match[1], 65);
+  }
+
+  for (const match of clean.matchAll(/\b(\d{2})(\d{2})(20\d{2}|19\d{2})\b/g)) {
+    add(match[3], match[2], match[1], 70);
+  }
+
+  return candidates;
+}
+
+function pickBestDate(candidates) {
+  let best = null;
+  const now = new Date();
+  const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+
+  for (const [date, score] of candidates.entries()) {
+    const time = Date.parse(`${date}T00:00:00Z`);
+    const futureBoost = time >= today ? 12 : 0;
+    const value = score + futureBoost;
+
+    if (!best || value > best.value || (value === best.value && time > best.time)) {
+      best = { date, value, time };
+    }
+  }
+
+  return best?.date || null;
+}
+
+function extractDateFromTextBlob(clean, markerScore = 0) {
+  return pickBestDate(collectDateCandidates(clean, markerScore));
 }
 
 function extractDateFromText(text) {
-  const clean = (text || "").replace(/\s+/g, " ").trim();
+  const clean = normalizeOcrText(text);
   if (!clean) return null;
 
-  const priorityMarkers = [/\bexp(?:iry)?\b/i, /\bbest before\b/i, /\buse by\b/i, /\buse before\b/i, /\bbb\b/i];
+  const priorityMarkers = [
+    /\bexp(?:iry|ires?|iration)?\b/i,
+    /\bbest before\b/i,
+    /\buse by\b/i,
+    /\buse before\b/i,
+    /\bbb(?:e|d)?\b/i,
+    /\bvalid till\b/i
+  ];
+
+  const allCandidates = new Map();
 
   for (const marker of priorityMarkers) {
-    const idx = clean.search(marker);
-    if (idx === -1) continue;
+    const match = clean.match(marker);
+    if (!match || match.index === undefined) continue;
 
-    const windowText = clean.slice(idx, idx + 90);
-    const parsed = extractDateFromTextBlob(windowText);
-    if (parsed) return parsed;
+    const windowText = clean.slice(match.index, match.index + 120);
+    const markerCandidates = collectDateCandidates(windowText, 40);
+    for (const [date, score] of markerCandidates.entries()) addDateCandidate(allCandidates, date, score);
   }
 
-  return extractDateFromTextBlob(clean);
+  const markerDate = pickBestDate(allCandidates);
+  if (markerDate) return markerDate;
+
+  const withoutManufacturing = clean
+    .replace(/\b(?:mfg|mfd|manufactured|packed|pkd|pack date)\b.{0,45}/gi, " ")
+    .replace(/\s+/g, " ");
+
+  return extractDateFromTextBlob(withoutManufacturing);
 }
 
-function preprocessCanvasForOcr(canvas) {
+function cropCanvas(canvas, xRatio, yRatio, widthRatio, heightRatio, scale = 2) {
+  const crop = document.createElement("canvas");
+  const sourceWidth = Math.max(1, Math.round(canvas.width * widthRatio));
+  const sourceHeight = Math.max(1, Math.round(canvas.height * heightRatio));
+  const sourceX = Math.max(0, Math.round(canvas.width * xRatio));
+  const sourceY = Math.max(0, Math.round(canvas.height * yRatio));
+
+  crop.width = sourceWidth * scale;
+  crop.height = sourceHeight * scale;
+
+  const ctx = crop.getContext("2d");
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(canvas, sourceX, sourceY, sourceWidth, sourceHeight, 0, 0, crop.width, crop.height);
+
+  return crop;
+}
+
+function tuneCanvasForOcr(canvas, mode = "threshold") {
   const processed = document.createElement("canvas");
   processed.width = canvas.width;
   processed.height = canvas.height;
@@ -416,7 +504,12 @@ function preprocessCanvasForOcr(canvas) {
 
   for (let i = 0; i < data.length; i += 4) {
     const gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
-    const value = gray > 145 ? 255 : 0;
+    let value = gray;
+
+    if (mode === "threshold") value = gray > 142 ? 255 : 0;
+    if (mode === "contrast") value = Math.max(0, Math.min(255, (gray - 118) * 1.9 + 128));
+    if (mode === "invert") value = gray > 142 ? 0 : 255;
+
     data[i] = value;
     data[i + 1] = value;
     data[i + 2] = value;
@@ -424,6 +517,52 @@ function preprocessCanvasForOcr(canvas) {
 
   ctx.putImageData(image, 0, 0);
   return processed;
+}
+
+function buildOcrCanvases(canvas) {
+  const full = cropCanvas(canvas, 0, 0, 1, 1, 1.4);
+  const center = cropCanvas(canvas, 0.08, 0.22, 0.84, 0.5, 2.2);
+  const lower = cropCanvas(canvas, 0.08, 0.48, 0.84, 0.38, 2.2);
+  const top = cropCanvas(canvas, 0.08, 0.08, 0.84, 0.38, 2.2);
+  const crops = [center, lower, top, full];
+  const variants = [];
+
+  for (const crop of crops) {
+    variants.push(tuneCanvasForOcr(crop, "contrast"));
+    variants.push(tuneCanvasForOcr(crop, "threshold"));
+  }
+
+  variants.push(tuneCanvasForOcr(center, "invert"));
+  variants.push(full);
+
+  return variants;
+}
+
+function buildOcrContactSheet(canvases) {
+  const selected = canvases.slice(0, 6);
+  const cellWidth = Math.max(...selected.map((canvas) => canvas.width));
+  const cellHeight = Math.max(...selected.map((canvas) => canvas.height));
+  const cols = 2;
+  const rows = Math.ceil(selected.length / cols);
+  const gap = 18;
+  const sheet = document.createElement("canvas");
+
+  sheet.width = cols * cellWidth + (cols + 1) * gap;
+  sheet.height = rows * cellHeight + (rows + 1) * gap;
+
+  const ctx = sheet.getContext("2d");
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, sheet.width, sheet.height);
+
+  selected.forEach((canvas, index) => {
+    const col = index % cols;
+    const row = Math.floor(index / cols);
+    const x = gap + col * (cellWidth + gap);
+    const y = gap + row * (cellHeight + gap);
+    ctx.drawImage(canvas, x, y);
+  });
+
+  return sheet;
 }
 
 function canvasToBlob(canvas) {
@@ -445,7 +584,10 @@ async function detectExpiryViaApi(canvas) {
       body: formData
     });
 
-    return data?.detectedDate || null;
+    return {
+      date: data?.detectedDate || null,
+      rawText: data?.rawText || ""
+    };
   } catch {
     return null;
   }
@@ -454,46 +596,64 @@ async function detectExpiryViaApi(canvas) {
 async function detectExpiryViaLocalOcr(canvas) {
   if (!window.Tesseract) return null;
 
-  const result = await window.Tesseract.recognize(canvas, "eng");
+  const result = await window.Tesseract.recognize(canvas, "eng", {
+    tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789/.-: "
+  });
   const text = result?.data?.text || "";
-  return extractDateFromText(text);
+  return {
+    date: extractDateFromText(text),
+    rawText: text
+  };
 }
 
 async function scanExpiryText() {
   try {
     await startCamera();
-    updateScannerStatus("Scanning expiry text...");
+    updateScannerStatus("Scanning expiry text. Keep the date label inside the camera view.");
 
-    for (let attempt = 1; attempt <= 5; attempt++) {
+    for (let attempt = 1; attempt <= 4; attempt++) {
       const canvas = grabFrameToCanvas();
       if (!canvas) {
         await delay(260);
         continue;
       }
 
-      const processed = preprocessCanvasForOcr(canvas);
-
-      // 1) Try backend OCR API first.
-      let dateValue = await detectExpiryViaApi(processed);
-
-      // 2) Fallback to local OCR if API fails or misses.
-      if (!dateValue) {
-        const localSource = attempt % 2 === 0 ? processed : canvas;
-        dateValue = await detectExpiryViaLocalOcr(localSource);
-      }
-
-      if (dateValue) {
-        document.getElementById("expiryDate").value = dateValue;
-        updateScannerStatus(`Expiry date detected: ${dateValue}`);
+      const ocrCanvases = buildOcrCanvases(canvas);
+      const rawTextParts = [];
+      const apiResult = await detectExpiryViaApi(buildOcrContactSheet(ocrCanvases));
+      if (apiResult?.rawText) rawTextParts.push(apiResult.rawText);
+      if (apiResult?.date) {
+        document.getElementById("expiryDate").value = apiResult.date;
+        updateScannerStatus(`Expiry date detected: ${apiResult.date}`);
         return;
       }
 
-      updateScannerStatus(`Scanning expiry text... attempt ${attempt}/5`);
-      await delay(220);
+      for (let index = 0; index < ocrCanvases.length; index++) {
+        updateScannerStatus(`Reading expiry text... frame ${attempt}/4, view ${index + 1}/${ocrCanvases.length}`);
+
+        const shouldTryLocalOcr = index < 3 || index === ocrCanvases.length - 1;
+        const localResult = shouldTryLocalOcr ? await detectExpiryViaLocalOcr(ocrCanvases[index]) : null;
+        if (localResult?.rawText) rawTextParts.push(localResult.rawText);
+        if (localResult?.date) {
+          document.getElementById("expiryDate").value = localResult.date;
+          updateScannerStatus(`Expiry date detected: ${localResult.date}`);
+          return;
+        }
+      }
+
+      const combinedDate = extractDateFromText(rawTextParts.join(" "));
+      if (combinedDate) {
+        document.getElementById("expiryDate").value = combinedDate;
+        updateScannerStatus(`Expiry date detected: ${combinedDate}`);
+        return;
+      }
+
+      updateScannerStatus(`No expiry date found in frame ${attempt}/4. Move closer and hold steady.`);
+      await delay(320);
     }
 
-    updateScannerStatus("Could not detect expiry date. Enter it manually.");
-    alert("Expiry date not detected. Please try again or enter manually.");
+    updateScannerStatus("Could not detect expiry date. Try brighter light, fill the camera with the expiry label, or enter it manually.");
+    alert("Expiry date not detected. Try again closer to the expiry label or enter it manually.");
   } catch {
     updateScannerStatus("Expiry text scan failed.");
     alert("Expiry scan failed. Please try again.");

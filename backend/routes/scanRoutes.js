@@ -272,78 +272,148 @@ function normalizeYear(yearText) {
   return y;
 }
 
-function extractDateFromTextBlob(clean) {
-  const ymd = clean.match(/\b(20\d{2}|19\d{2})[\/.\-](\d{1,2})[\/.\-](\d{1,2})\b/);
-  if (ymd) return toIsoDate(ymd[1], ymd[2], ymd[3]);
+const monthMap = {
+  jan: 1,
+  feb: 2,
+  mar: 3,
+  apr: 4,
+  may: 5,
+  jun: 6,
+  jul: 7,
+  aug: 8,
+  sep: 9,
+  sept: 9,
+  oct: 10,
+  nov: 11,
+  dec: 12
+};
 
-  const dmy = clean.match(/\b(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})\b/);
-  if (dmy) {
-    const year = normalizeYear(dmy[3]);
-    return toIsoDate(year, dmy[2], dmy[1]);
-  }
+function normalizeOcrText(text) {
+  return (text || "")
+    .replace(/[|]/g, "1")
+    .replace(/[\u2013\u2014]/g, "-")
+    .replace(/\b([Ee])\s*[Xx]\s*[Pp]\b/g, "EXP")
+    .replace(/\b([Mm])\s*[Ff]\s*[Gg]\b/g, "MFG")
+    .replace(/\b([Bb])\s*[Bb]\s*[Ee]?\b/g, "BBE")
+    .replace(/\s*([/.\-:])\s*/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
-  const monthMap = {
-    jan: 1,
-    feb: 2,
-    mar: 3,
-    apr: 4,
-    may: 5,
-    jun: 6,
-    jul: 7,
-    aug: 8,
-    sep: 9,
-    oct: 10,
-    nov: 11,
-    dec: 12
+function addDateCandidate(candidates, date, score) {
+  if (!date) return;
+  const year = Number(date.slice(0, 4));
+  if (year < 1990 || year > 2099) return;
+  const existing = candidates.get(date);
+  if (!existing || score > existing) candidates.set(date, score);
+}
+
+function collectDateCandidates(text, markerScore = 0) {
+  const clean = normalizeOcrText(text);
+  const candidates = new Map();
+
+  const add = (year, month, day, score) => {
+    addDateCandidate(candidates, toIsoDate(normalizeYear(year), month, day), score + markerScore);
+  };
+  const addMonthYear = (year, month, score) => {
+    const normalizedYear = normalizeYear(year);
+    const day = lastDayOfMonth(normalizedYear, month);
+    addDateCandidate(candidates, toIsoDate(normalizedYear, month, day), score + markerScore);
   };
 
-  const textual = clean.match(/\b(\d{1,2})\s*(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s*(\d{2,4})\b/i);
-  if (textual) {
-    const year = normalizeYear(textual[3]);
-    const month = monthMap[textual[2].slice(0, 3).toLowerCase()];
-    return toIsoDate(year, month, textual[1]);
+  for (const match of clean.matchAll(/\b(20\d{2}|19\d{2})[\/.\-](\d{1,2})[\/.\-](\d{1,2})\b/g)) {
+    add(match[1], match[2], match[3], 88);
   }
 
-  const monthYearText = clean.match(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s*(\d{2,4})\b/i);
-  if (monthYearText) {
-    const year = normalizeYear(monthYearText[2]);
-    const month = monthMap[monthYearText[1].slice(0, 3).toLowerCase()];
-    const day = lastDayOfMonth(year, month);
-    return toIsoDate(year, month, day);
+  for (const match of clean.matchAll(/\b(\d{1,2})[\/.\-](\d{1,2})[\/.\-](\d{2,4})\b/g)) {
+    add(match[3], match[2], match[1], 92);
   }
 
-  const yearMonth = clean.match(/\b(20\d{2}|19\d{2})[\/.\-](\d{1,2})(?![\/.\-]\d{1,2})\b/);
-  if (yearMonth) {
-    const day = lastDayOfMonth(yearMonth[1], yearMonth[2]);
-    return toIsoDate(yearMonth[1], yearMonth[2], day);
+  for (const match of clean.matchAll(/\b(\d{1,2})\s*(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*[\/.\-\s]*(\d{2,4})\b/gi)) {
+    add(match[3], monthMap[match[2].slice(0, 4).toLowerCase()] || monthMap[match[2].slice(0, 3).toLowerCase()], match[1], 94);
   }
 
-  const monthYear = clean.match(/\b(\d{1,2})[\/.\-](\d{2,4})\b/);
-  if (monthYear) {
-    const year = normalizeYear(monthYear[2]);
-    const day = lastDayOfMonth(year, monthYear[1]);
-    return toIsoDate(year, monthYear[1], day);
+  for (const match of clean.matchAll(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*[\/.\-\s]*(\d{1,2})[,]?[\/.\-\s]*(\d{2,4})\b/gi)) {
+    add(match[3], monthMap[match[1].slice(0, 4).toLowerCase()] || monthMap[match[1].slice(0, 3).toLowerCase()], match[2], 90);
   }
 
-  return null;
+  for (const match of clean.matchAll(/\b(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*[\/.\-\s]*(\d{2,4})\b/gi)) {
+    addMonthYear(match[2], monthMap[match[1].slice(0, 4).toLowerCase()] || monthMap[match[1].slice(0, 3).toLowerCase()], 84);
+  }
+
+  for (const match of clean.matchAll(/\b(20\d{2}|19\d{2})[\/.\-](\d{1,2})(?![\/.\-]\d{1,2})\b/g)) {
+    addMonthYear(match[1], match[2], 78);
+  }
+
+  for (const match of clean.matchAll(/\b(\d{1,2})[\/.\-](\d{2,4})\b/g)) {
+    addMonthYear(match[2], match[1], 82);
+  }
+
+  for (const match of clean.matchAll(/\b(0[1-9]|1[0-2])\s*(\d{2})\b/g)) {
+    addMonthYear(match[2], match[1], 65);
+  }
+
+  for (const match of clean.matchAll(/\b(\d{2})(\d{2})(20\d{2}|19\d{2})\b/g)) {
+    add(match[3], match[2], match[1], 70);
+  }
+
+  return candidates;
+}
+
+function pickBestDate(candidates) {
+  let best = null;
+  const now = new Date();
+  const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+
+  for (const [date, score] of candidates.entries()) {
+    const time = Date.parse(`${date}T00:00:00Z`);
+    const futureBoost = time >= today ? 12 : 0;
+    const value = score + futureBoost;
+
+    if (!best || value > best.value || (value === best.value && time > best.time)) {
+      best = { date, value, time };
+    }
+  }
+
+  return best?.date || null;
+}
+
+function extractDateFromTextBlob(clean, markerScore = 0) {
+  return pickBestDate(collectDateCandidates(clean, markerScore));
 }
 
 function extractDateFromText(text) {
-  const clean = (text || "").replace(/\s+/g, " ").trim();
+  const clean = normalizeOcrText(text);
   if (!clean) return null;
 
-  const priorityMarkers = [/\bexp(?:iry)?\b/i, /\bbest before\b/i, /\buse by\b/i, /\buse before\b/i, /\bbb\b/i];
+  const priorityMarkers = [
+    /\bexp(?:iry|ires?|iration)?\b/i,
+    /\bbest before\b/i,
+    /\buse by\b/i,
+    /\buse before\b/i,
+    /\bbb(?:e|d)?\b/i,
+    /\bvalid till\b/i
+  ];
+
+  const allCandidates = new Map();
 
   for (const marker of priorityMarkers) {
-    const idx = clean.search(marker);
-    if (idx === -1) continue;
+    const match = clean.match(marker);
+    if (!match || match.index === undefined) continue;
 
-    const windowText = clean.slice(idx, idx + 90);
-    const parsed = extractDateFromTextBlob(windowText);
-    if (parsed) return parsed;
+    const windowText = clean.slice(match.index, match.index + 120);
+    const markerCandidates = collectDateCandidates(windowText, 40);
+    for (const [date, score] of markerCandidates.entries()) addDateCandidate(allCandidates, date, score);
   }
 
-  return extractDateFromTextBlob(clean);
+  const markerDate = pickBestDate(allCandidates);
+  if (markerDate) return markerDate;
+
+  const withoutManufacturing = clean
+    .replace(/\b(?:mfg|mfd|manufactured|packed|pkd|pack date)\b.{0,45}/gi, " ")
+    .replace(/\s+/g, " ");
+
+  return extractDateFromTextBlob(withoutManufacturing);
 }
 
 router.use(auth);
@@ -493,6 +563,10 @@ router.post("/expiry-ocr", upload.single("image"), async (req, res) => {
     form.append("apikey", ocrApiKey);
     form.append("language", "eng");
     form.append("isOverlayRequired", "false");
+    form.append("scale", "true");
+    form.append("detectOrientation", "true");
+    form.append("OCREngine", "2");
+    form.append("filetype", "PNG");
     form.append(
       "file",
       new Blob([req.file.buffer], { type: req.file.mimetype || "image/png" }),
